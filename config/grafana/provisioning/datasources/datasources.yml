@@ -1,0 +1,55 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: "15s"
+      queryTimeout: "60s"
+      httpMethod: "POST"
+
+  - name: QuestDB
+    type: postgres
+    url: questdb:8812
+    user: ${QUESTDB_USER}
+    secureJsonData:
+      password: ${QUESTDB_PASSWORD}
+    jsonData:
+      sslmode: "disable"
+      maxOpenConns: 100
+      maxIdleConns: 100
+      connMaxLifetime: 14400
+      postgresVersion: 1200
+      timescaledb: false
+
+  - name: ClickHouse
+    type: grafana-clickhouse-datasource
+    url: http://clickhouse:8123
+    user: ${CLICKHOUSE_USER}
+    secureJsonData:
+      password: ${CLICKHOUSE_PASSWORD}
+    jsonData:
+      defaultDatabase: default
+      defaultTable: system.metrics
+      port: 8123
+      protocol: http
+      tlsSkipVerify: true
+
+  - name: PostgreSQL
+    type: postgres
+    url: postgres:5432
+    database: thedata
+    user: ${POSTGRES_USER}
+    secureJsonData:
+      password: ${POSTGRES_PASSWORD}
+    jsonData:
+      sslmode: "disable"
+      maxOpenConns: 100
+      maxIdleConns: 100
+      connMaxLifetime: 14400
+      postgresVersion: 1500
+    editable: false 

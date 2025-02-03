@@ -1,0 +1,310 @@
+version: '3.8'
+
+services:
+  nats:
+    image: nats:2.10.5
+    command: ["--config", "/etc/nats/jetstream.conf"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - ./config/nats/jetstream.conf:/etc/nats/jetstream.conf
+      - ./config/nats/certs:/etc/nats/certs
+      - ./data/nats:/data
+      - ./logs/nats:/var/log/nats
+    environment:
+      - NATS_CLUSTER_NAME=thedata-cluster
+      - NATS_SERVER_NAME=nats-1
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - thedata_net
+
+  materialize:
+    image: materialize/materialized:v0.91.0
+    ports:
+      - "6875:6875"
+    volumes:
+      - ./data/materialize:/data
+      - ./logs/materialize:/var/log/materialize
+    environment:
+      - MZ_WORKERS=4
+      - MZ_MEMORY_LIMIT=16GB
+      - MZ_LOG_LEVEL=info
+      - MZ_PERSISTENCE_CONFIG=/data/persistence
+    command: ["materialized", "--workers", "4"]
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "psql", "-h", "localhost", "-p", "6875", "-U", "materialize", "-c", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - thedata_net
+
+  questdb:
+    image: questdb/questdb:7.3.7
+    ports:
+      - "9000:9000"
+      - "8812:8812"
+      - "9003:9003"
+    volumes:
+      - ./data/questdb:/root/.questdb
+      - ./config/questdb/server.conf:/root/.questdb/conf/server.conf
+      - ./logs/questdb:/var/log/questdb
+    environment:
+      - QDB_PG_USER=${QUESTDB_USER}
+      - QDB_PG_PASSWORD=${QUESTDB_PASSWORD}
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - thedata_net
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.8.8.20
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ./data/clickhouse:/var/lib/clickhouse
+      - ./config/clickhouse:/etc/clickhouse-server
+      - ./logs/clickhouse:/var/log/clickhouse-server
+    environment:
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - thedata_net
+
+  grafana:
+    image: grafana/grafana:10.2.3
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning
+      - ./logs/grafana:/var/log/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+    depends_on:
+      questdb:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - thedata_net
+
+  prometheus:
+    image: prom/prometheus:v2.48.1
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus:/etc/prometheus
+      - ./data/prometheus:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - thedata_net
+
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./config/alertmanager:/etc/alertmanager
+      - ./data/alertmanager:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - thedata_net
+
+  postgres:
+    image: postgres:15.5
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+      - ./config/postgres:/etc/postgresql
+      - ./logs/postgres:/var/log/postgresql
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=thedata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - thedata_net
+
+  dagster:
+    build:
+      context: .
+      dockerfile: Dockerfile.dagster
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./data/dagster:/opt/dagster/dagster_home
+      - ./config/dagster/workspace.yaml:/opt/dagster/workspace.yaml
+      - ./app/dagster:/opt/dagster/app
+      - ./logs/dagster:/var/log/dagster
+    environment:
+      - DAGSTER_HOME=/opt/dagster/dagster_home
+      - DAGSTER_POSTGRES_HOST=postgres
+      - DAGSTER_POSTGRES_PORT=5432
+      - DAGSTER_POSTGRES_USER=${POSTGRES_USER}
+      - DAGSTER_POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - DAGSTER_POSTGRES_DB=dagster
+      - DAGSTER_MATERIALIZE_HOST=materialize
+      - DAGSTER_MATERIALIZE_PORT=6875
+      - DAGSTER_QUESTDB_HOST=questdb
+      - DAGSTER_QUESTDB_PORT=8812
+      - DAGSTER_CLICKHOUSE_HOST=clickhouse
+      - DAGSTER_CLICKHOUSE_PORT=8123
+      - DAGSTER_CELERY_BROKER_URL=${DAGSTER_CELERY_BROKER_URL}
+      - DAGSTER_CELERY_RESULT_BACKEND=${DAGSTER_CELERY_RESULT_BACKEND}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      materialize:
+        condition: service_healthy
+      questdb:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - thedata_net
+
+  redis:
+    image: redis:7.2.3
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+      - ./logs/redis:/var/log/redis
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - thedata_net
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "${API_PORT}:8000"
+    volumes:
+      - ./app:/app
+      - ./logs/api:/var/log/api
+    environment:
+      - API_HOST=${API_HOST}
+      - API_PORT=${API_PORT}
+      - NATS_URL=nats://nats:4222
+      - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN}
+      - LOG_LEVEL=info
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - thedata_net
+
+  traefik:
+    image: traefik:v2.10.7
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8082:8082"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./config/traefik:/etc/traefik
+      - ./logs/traefik:/var/log/traefik
+    command:
+      - "--api.insecure=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.metrics.address=:8082"
+      - "--metrics.prometheus=true"
+      - "--metrics.prometheus.entrypoint=metrics"
+      - "--log.level=INFO"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.metrics.entrypoints=metrics"
+      - "traefik.http.routers.metrics.service=prometheus@internal"
+      - "traefik.http.routers.metrics.middlewares=metrics-chain@file"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8082/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - thedata_net
+
+networks:
+  thedata_net:
+    external: true 

@@ -1,0 +1,39 @@
+apiVersion: 1
+
+datasources:
+  - name: QuestDB
+    type: questdb
+    access: proxy
+    url: http://questdb:9000
+    user: ${QUESTDB_USER}
+    secureJsonData:
+      password: ${QUESTDB_PASSWORD}
+    jsonData:
+      timeInterval: "1s"
+      queryTimeout: "30s"
+      tlsSkipVerify: true
+    editable: false
+
+  - name: ClickHouse
+    type: grafana-clickhouse-datasource
+    access: proxy
+    url: http://clickhouse:8123
+    user: ${CLICKHOUSE_USER}
+    secureJsonData:
+      password: ${CLICKHOUSE_PASSWORD}
+    jsonData:
+      defaultDatabase: default
+      timeInterval: "1s"
+      queryTimeout: "30s"
+      tlsSkipVerify: true
+    editable: false
+
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    jsonData:
+      timeInterval: "1s"
+      queryTimeout: "30s"
+      tlsSkipVerify: true
+    editable: false 

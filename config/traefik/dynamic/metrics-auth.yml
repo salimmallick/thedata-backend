@@ -1,0 +1,21 @@
+http:
+  middlewares:
+    metrics-auth:
+      basicAuth:
+        users:
+          - "metrics:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+        removeHeader: true
+      
+    metrics-whitelist:
+      ipWhiteList:
+        sourceRange:
+          - "127.0.0.1/32"
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+          - "192.168.0.0/16"
+
+    metrics-chain:
+      chain:
+        middlewares:
+          - metrics-auth
+          - metrics-whitelist 

@@ -1,0 +1,77 @@
+http:
+  middlewares:
+    securityHeaders:
+      headers:
+        browserXssFilter: true
+        contentTypeNosniff: true
+        frameDeny: true
+        sslRedirect: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+        customFrameOptionsValue: "SAMEORIGIN"
+        customResponseHeaders:
+          X-Robots-Tag: "none,noarchive,nosnippet,notranslate,noimageindex"
+          Server: ""
+
+    rateLimit:
+      rateLimit:
+        average: 100
+        burst: 50
+        period: 1s
+
+    metrics-auth:
+      basicAuth:
+        users:
+          - "metrics:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+        removeHeader: true
+      
+    metrics-whitelist:
+      ipWhiteList:
+        sourceRange:
+          - "127.0.0.1/32"
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+          - "192.168.0.0/16"
+
+    metrics-chain:
+      chain:
+        middlewares:
+          - metrics-auth
+          - metrics-whitelist
+
+    auth:
+      basicAuth:
+        users:
+          - "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+
+    compress:
+      compress: {}
+
+    redirect:
+      redirectScheme:
+        scheme: https
+        permanent: true
+
+    chain-auth:
+      chain:
+        middlewares:
+          - auth
+          - rateLimit 
+
+tls:
+  options:
+    modern:
+      minVersion: VersionTLS13
+      sniStrict: true
+      cipherSuites:
+        - TLS_AES_128_GCM_SHA256
+        - TLS_AES_256_GCM_SHA384
+        - TLS_CHACHA20_POLY1305_SHA256
+    default:
+      minVersion: VersionTLS12
+      cipherSuites:
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305 
