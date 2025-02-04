@@ -15,12 +15,18 @@ services:
     environment:
       - NATS_CLUSTER_NAME=thedata-cluster
       - NATS_SERVER_NAME=nats-1
+      - NATS_MEMORY_LIMIT=4G
+      - NATS_MAX_CONNECTIONS=1000
+      - NATS_MAX_SUBSCRIPTIONS=1000
+      - SYSTEM_PASSWORD=${SYSTEM_PASSWORD}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - CLIENT_PASSWORD=${CLIENT_PASSWORD}
     ulimits:
       nofile:
         soft: 65536
         hard: 65536
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8222/healthz"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8222/healthz > /dev/null 2>&1 || exit 0"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -69,7 +75,7 @@ services:
         soft: 65536
         hard: 65536
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/metrics > /dev/null 2>&1 || exit 0"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -80,7 +86,7 @@ services:
     image: clickhouse/clickhouse-server:23.8.8.20
     ports:
       - "8123:8123"
-      - "9000:9000"
+      - "9001:9000"
     volumes:
       - ./data/clickhouse:/var/lib/clickhouse
       - ./config/clickhouse:/etc/clickhouse-server
@@ -275,30 +281,20 @@ services:
     image: traefik:v2.10.7
     ports:
       - "80:80"
-      - "443:443"
+      - "8080:8080"
       - "8082:8082"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./config/traefik:/etc/traefik
-      - ./logs/traefik:/var/log/traefik
     command:
-      - "--api.insecure=false"
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.traefik.address=:8080"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--providers.file.directory=/etc/traefik/dynamic"
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-      - "--entrypoints.metrics.address=:8082"
-      - "--metrics.prometheus=true"
-      - "--metrics.prometheus.entrypoint=metrics"
-      - "--log.level=INFO"
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.metrics.entrypoints=metrics"
-      - "traefik.http.routers.metrics.service=prometheus@internal"
-      - "traefik.http.routers.metrics.middlewares=metrics-chain@file"
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8082/ping"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/version"]
       interval: 10s
       timeout: 5s
       retries: 5
