@@ -52,4 +52,4 @@ datasources:
       maxIdleConns: 100
       connMaxLifetime: 14400
       postgresVersion: 1500
-    editable: false 
+    editable: false

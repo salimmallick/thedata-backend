@@ -14,4 +14,4 @@ providers:
     network: thedata_net
 
 log:
-  level: INFO 
+  level: INFO

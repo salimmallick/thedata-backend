@@ -36,4 +36,4 @@ datasources:
       timeInterval: "1s"
       queryTimeout: "30s"
       tlsSkipVerify: true
-    editable: false 
+    editable: false

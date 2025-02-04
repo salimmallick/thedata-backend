@@ -35,4 +35,4 @@ loggers:
 root:
   level: INFO
   handlers: [console, file]
-  propagate: false 
+  propagate: false
