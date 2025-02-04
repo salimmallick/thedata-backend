@@ -47,13 +47,16 @@ services:
       - MZ_LOG_LEVEL=info
     command: [
       "--workers", "4",
-      "--listen-addr", "0.0.0.0:6875"
+      "--listen-addr", "0.0.0.0:6875",
+      "--data-directory", "/data",
+      "--log", "/var/log/materialize/materialize.log"
     ]
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 6875 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD-SHELL", "psql -h localhost -p 6875 -U materialize -c '\\q' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
       - thedata_net
 
@@ -64,7 +67,8 @@ services:
       - "8812:8812"
       - "9003:9003"
     volumes:
-      - ./data/questdb:/root/.questdb
+      - ./data/questdb/db:/root/.questdb/db
+      - ./data/questdb/conf:/root/.questdb/conf
       - ./config/questdb/server.conf:/root/.questdb/conf/server.conf
       - ./logs/questdb:/var/log/questdb
     environment:
@@ -72,10 +76,14 @@ services:
       - QDB_PG_PASSWORD=${QUESTDB_PASSWORD}
     ulimits:
       nofile:
-        soft: 65536
-        hard: 65536
+        soft: 131072
+        hard: 131072
     healthcheck:
-      disable: true
+      test: ["CMD-SHELL", "curl -f http://localhost:9000 || exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
       - thedata_net
 
@@ -86,21 +94,24 @@ services:
       - "9001:9000"
     volumes:
       - ./data/clickhouse:/var/lib/clickhouse
-      - ./config/clickhouse:/etc/clickhouse-server
       - ./logs/clickhouse:/var/log/clickhouse-server
     environment:
       - CLICKHOUSE_USER=${CLICKHOUSE_USER}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
       - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+      - CLICKHOUSE_LOG_LEVEL=information
+      - CLICKHOUSE_HTTP_PORT=8123
+      - CLICKHOUSE_TCP_PORT=9000
     ulimits:
       nofile:
         soft: 262144
         hard: 262144
     healthcheck:
-      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     networks:
       - thedata_net
 

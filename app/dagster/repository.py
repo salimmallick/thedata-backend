@@ -36,4 +36,11 @@ def thedata_repository():
         processed_data,
         sample_job,
         sample_schedule
-    ] 
+    ]
+
+defs = Definitions(
+    assets=[],
+    schedules=[],
+    sensors=[],
+    jobs=[],
+) 
