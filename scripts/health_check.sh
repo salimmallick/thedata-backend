@@ -11,8 +11,9 @@ check_service() {
     local port="$2"
     local endpoint="${3:-/}"
     local expected_code="${4:-200}"
-    local max_retries=3
+    local max_retries=5
     local retry_count=0
+    local wait_time=10
     
     echo -n "Checking $service (port $port)... "
     while [ $retry_count -lt $max_retries ]; do
@@ -23,11 +24,12 @@ check_service() {
         retry_count=$((retry_count + 1))
         if [ $retry_count -lt $max_retries ]; then
             echo -n "retrying ($retry_count/$max_retries)... "
-            sleep 5
+            sleep $wait_time
         fi
     done
     echo "FAILED"
     echo "Error: Could not connect to $service on port $port after $max_retries attempts"
+    docker compose logs "$service" --tail 20
     return 1
 }
 
@@ -35,8 +37,9 @@ check_service() {
 check_db() {
     local service="$1"
     local port="$2"
-    local max_retries=3
+    local max_retries=5
     local retry_count=0
+    local wait_time=10
     
     echo -n "Checking $service (port $port)... "
     while [ $retry_count -lt $max_retries ]; do
@@ -47,13 +50,18 @@ check_db() {
         retry_count=$((retry_count + 1))
         if [ $retry_count -lt $max_retries ]; then
             echo -n "retrying ($retry_count/$max_retries)... "
-            sleep 5
+            sleep $wait_time
         fi
     done
     echo "FAILED"
     echo "Error: Could not connect to $service on port $port after $max_retries attempts"
+    docker compose logs "$service" --tail 20
     return 1
 }
+
+# Initial wait for services to start
+echo "Waiting for services to initialize (60s)..."
+sleep 60
 
 # Check Docker services status
 echo "Checking Docker services..."
@@ -68,6 +76,7 @@ check_service_health() {
         docker compose logs "$service" --tail 50
         return 1
     fi
+    return 0
 }
 
 # Check individual services
@@ -101,12 +110,13 @@ docker compose logs --tail=50 | grep -i "error" || echo "No recent errors found"
 
 # Resource usage
 echo -e "\nResource Usage:"
-docker stats --no-stream "$(docker compose ps -q)"
+docker stats --no-stream "$(docker compose ps -q)" || true
 
 echo -e "\nHealth check complete!"
 
 # If any service failed, exit with error
-if docker compose ps | grep -q "Exit"; then
-    echo "Error: Some services have failed to start"
+failed_services=$(docker compose ps --format json | grep -c "Exit")
+if [ "$failed_services" -gt 0 ]; then
+    echo "Error: $failed_services service(s) have failed to start"
     exit 1
 fi 

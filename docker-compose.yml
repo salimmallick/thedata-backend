@@ -128,13 +128,15 @@ services:
       - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
       - GF_LOG_MODE=console
       - GF_LOG_LEVEL=info
+      - GF_INSTALL_PLUGINS=
     user: "472"
+    init: true
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
-      interval: 10s
-      timeout: 5s
+      interval: 30s
+      timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 60s
     networks:
       - thedata_net
 
@@ -146,11 +148,15 @@ services:
       - ./config/prometheus:/etc/prometheus:ro
       - ./data/prometheus:/prometheus
     user: "65534:65534"  # nobody:nogroup
+    init: true
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=15d'
       - '--web.enable-lifecycle'
+      - '--storage.tsdb.wal-compression'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
       interval: 10s
