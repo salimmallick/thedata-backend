@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Check YAML files
         uses: ibiqlik/action-yamllint@v3
         with:
           file_or_dir: .
           config_file: .yamllint.yml
-      
+
       - name: Check shell scripts
         run: |
           sudo apt-get install -y shellcheck
@@ -30,21 +30,21 @@ jobs:
     needs: lint
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Create env file
         run: cp .env.example .env
-      
+
       - name: Initialize directories
         run: |
           chmod +x scripts/initialize.sh
           ./scripts/initialize.sh
-      
+
       - name: Start services
         run: docker compose up -d
-      
+
       - name: Wait for services
         run: sleep 60
-      
+
       - name: Run health checks
         run: |
           chmod +x scripts/health_check.sh
@@ -57,14 +57,14 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Build and push API image
         uses: docker/build-push-action@v4
         with:
