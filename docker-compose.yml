@@ -45,12 +45,11 @@ services:
       - MZ_WORKERS=4
       - MZ_MEMORY_LIMIT=16GB
       - MZ_LOG_LEVEL=info
-    command: [
-      "--workers", "4",
-      "--listen-addr", "0.0.0.0:6875",
-      "--data-directory", "/data",
-      "--log", "/var/log/materialize/materialize.log"
-    ]
+    command:
+      - --workers=4
+      - --listen-addr=0.0.0.0:6875
+      - --data-directory=/data
+      - --log-file=/var/log/materialize/materialize.log
     healthcheck:
       test: ["CMD-SHELL", "psql -h localhost -p 6875 -U materialize -c '\\q' || exit 1"]
       interval: 30s
@@ -147,6 +146,7 @@ services:
     volumes:
       - ./config/prometheus:/etc/prometheus
       - ./data/prometheus:/prometheus
+    user: "65534:65534"
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -157,6 +157,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
     networks:
       - thedata_net
 
