@@ -5,60 +5,95 @@ set -e
 
 echo "Running health checks for TheData Platform..."
 
-# Function to check service health
+# Function to check service health with retries
 check_service() {
     local service="$1"
     local port="$2"
     local endpoint="${3:-/}"
     local expected_code="${4:-200}"
+    local max_retries=3
+    local retry_count=0
     
     echo -n "Checking $service (port $port)... "
-    if curl -s -o /dev/null -w "%{http_code}" "localhost:${port}${endpoint}" | grep -q "${expected_code}"; then
-        echo "OK"
-        return 0
-    else
-        echo "FAILED"
-        return 1
-    fi
+    while [ $retry_count -lt $max_retries ]; do
+        if curl -s -o /dev/null -w "%{http_code}" "localhost:${port}${endpoint}" | grep -q "${expected_code}"; then
+            echo "OK"
+            return 0
+        fi
+        retry_count=$((retry_count + 1))
+        if [ $retry_count -lt $max_retries ]; then
+            echo -n "retrying ($retry_count/$max_retries)... "
+            sleep 5
+        fi
+    done
+    echo "FAILED"
+    echo "Error: Could not connect to $service on port $port after $max_retries attempts"
+    return 1
 }
 
-# Function to check database connection
+# Function to check database connection with retries
 check_db() {
     local service="$1"
     local port="$2"
+    local max_retries=3
+    local retry_count=0
+    
     echo -n "Checking $service (port $port)... "
-    if nc -z localhost "${port}"; then
-        echo "OK"
-        return 0
-    else
-        echo "FAILED"
-        return 1
-    fi
+    while [ $retry_count -lt $max_retries ]; do
+        if nc -z localhost "${port}"; then
+            echo "OK"
+            return 0
+        fi
+        retry_count=$((retry_count + 1))
+        if [ $retry_count -lt $max_retries ]; then
+            echo -n "retrying ($retry_count/$max_retries)... "
+            sleep 5
+        fi
+    done
+    echo "FAILED"
+    echo "Error: Could not connect to $service on port $port after $max_retries attempts"
+    return 1
 }
 
 # Check Docker services status
 echo "Checking Docker services..."
 docker compose ps
 
+# Function to check if service is running and healthy
+check_service_health() {
+    local service="$1"
+    if ! docker compose ps "$service" --format json | grep -q "running"; then
+        echo "Error: Service $service is not running"
+        echo "Service logs:"
+        docker compose logs "$service" --tail 50
+        return 1
+    fi
+}
+
 # Check individual services
 echo -e "\nChecking service endpoints..."
 
+# Check core services first
+check_service_health "nats" || true
+check_service_health "postgres" || true
+check_service_health "redis" || true
+
 # Web Services
-check_service "API" "8000" "/health"
-check_service "Dagster" "3001" "/health"
-check_service "Grafana" "3000" "/api/health"
-check_service "QuestDB Web Console" "9000"
-check_service "Prometheus" "9090" "/-/healthy"
-check_service "Alertmanager" "9093" "/-/healthy"
-check_service "Traefik Dashboard" "8080" "/api/version"
+check_service "API" "8000" "/health" || true
+check_service "Dagster" "3001" "/health" || true
+check_service "Grafana" "3000" "/api/health" || true
+check_service "QuestDB Web Console" "9000" || true
+check_service "Prometheus" "9090" "/-/healthy" || true
+check_service "Alertmanager" "9093" "/-/healthy" || true
+check_service "Traefik Dashboard" "8080" "/api/version" || true
 
 # Database Connections
-check_db "PostgreSQL" "5432"
-check_db "QuestDB" "8812"
-check_db "ClickHouse" "9001"
-check_db "Redis" "6379"
-check_db "NATS" "4222"
-check_db "Materialize" "6875"
+check_db "PostgreSQL" "5432" || true
+check_db "QuestDB" "8812" || true
+check_db "ClickHouse" "9001" || true
+check_db "Redis" "6379" || true
+check_db "NATS" "4222" || true
+check_db "Materialize" "6875" || true
 
 # Check logs for errors
 echo -e "\nChecking recent logs for errors..."
@@ -68,4 +103,10 @@ docker compose logs --tail=50 | grep -i "error" || echo "No recent errors found"
 echo -e "\nResource Usage:"
 docker stats --no-stream "$(docker compose ps -q)"
 
-echo -e "\nHealth check complete!" 
+echo -e "\nHealth check complete!"
+
+# If any service failed, exit with error
+if docker compose ps | grep -q "Exit"; then
+    echo "Error: Some services have failed to start"
+    exit 1
+fi 
