@@ -1,5 +1,4 @@
-version: '3.8'
-
+# Remove version field as it's obsolete in Compose V2
 services:
   nats:
     image: nats:2.10.5
@@ -144,9 +143,9 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./config/prometheus:/etc/prometheus
+      - ./config/prometheus:/etc/prometheus:ro
       - ./data/prometheus:/prometheus
-    user: "65534:65534"
+    user: "65534:65534"  # nobody:nogroup
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
