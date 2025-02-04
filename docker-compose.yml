@@ -265,8 +265,26 @@ services:
       - NATS_URL=nats://nats:4222
       - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN}
       - LOG_LEVEL=info
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - QUESTDB_USER=${QUESTDB_USER}
+      - QUESTDB_PASSWORD=${QUESTDB_PASSWORD}
+      - QUESTDB_HOST=questdb
+      - QUESTDB_PORT=8812
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=8123
     depends_on:
       nats:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      questdb:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]

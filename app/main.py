@@ -3,12 +3,13 @@ import nats
 import os
 import logging
 from typing import Dict
+from fastapi.responses import JSONResponse
 
 # Configure logging
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
+app = FastAPI(title="TheData API", version="1.0.0")
 
 # NATS client
 nc = None
@@ -35,7 +36,11 @@ async def shutdown_event():
         logger.info("Closed NATS connection")
 
 @app.get("/health")
-async def health_check() -> Dict[str, str]:
+async def health_check():
+    """Health check endpoint."""
     if not nc or not nc.is_connected:
         raise HTTPException(status_code=503, detail="NATS connection is not available")
-    return {"status": "healthy", "message": "API service is running"} 
+    return JSONResponse(
+        status_code=200,
+        content={"status": "healthy", "message": "API is running"}
+    ) 
