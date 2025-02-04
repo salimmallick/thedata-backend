@@ -1,20 +1,18 @@
 #!/bin/bash
 
-# Exit on error
 set -e
 
 # Configuration
-BACKUP_DIR="/backups"
-RETENTION_DAYS=7
-DATE=$(date +%Y%m%d_%H%M%S)
-BACKUP_FILE="backup_${DATE}.tar.gz"
-LOG_FILE="/var/log/backup/backup.log"
+BACKUP_DIR="backups"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+LOG_FILE="logs/backup_${TIMESTAMP}.log"
 
 # Initialize logging
 mkdir -p "$(dirname "$LOG_FILE")"
 exec 1> >(tee -a "$LOG_FILE")
 exec 2>&1
 
+# Utility functions
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
 }
@@ -24,134 +22,146 @@ error() {
     exit 1
 }
 
-# Check prerequisites
-check_prerequisites() {
-    log "Checking prerequisites..."
-    command -v docker >/dev/null 2>&1 || error "Docker is required but not installed"
-    command -v docker-compose >/dev/null 2>&1 || error "Docker Compose is required but not installed"
+# Create backup directory structure
+create_backup_dirs() {
+    log "Creating backup directory structure..."
     
-    # Check backup directory
-    mkdir -p "$BACKUP_DIR" || error "Failed to create backup directory"
-    
-    # Check disk space
-    AVAILABLE_SPACE=$(df -P "$BACKUP_DIR" | awk 'NR==2 {print $4}')
-    MINIMUM_SPACE=$((10 * 1024 * 1024)) # 10GB in KB
-    if [ "$AVAILABLE_SPACE" -lt "$MINIMUM_SPACE" ]; then
-        error "Insufficient disk space for backup"
-    fi
+    mkdir -p "${BACKUP_DIR}/${TIMESTAMP}"/{postgres,questdb,clickhouse,materialize,nats,config}
+    chmod -R 700 "${BACKUP_DIR}/${TIMESTAMP}"
 }
 
-# Backup databases
-backup_databases() {
-    log "Starting database backups..."
+# Backup PostgreSQL databases
+backup_postgres() {
+    log "Backing up PostgreSQL databases..."
     
-    # QuestDB backup
-    log "Backing up QuestDB..."
-    docker-compose exec -T questdb questdb-backup \
-        --directory /backup \
-        --retention-days 7 || error "QuestDB backup failed"
+    docker-compose exec -T postgres pg_dumpall -U "$POSTGRES_USER" > \
+        "${BACKUP_DIR}/${TIMESTAMP}/postgres/full_backup.sql"
     
-    # ClickHouse backup
-    log "Backing up ClickHouse..."
-    docker-compose exec -T clickhouse clickhouse-client \
-        --query "BACKUP DATABASE default TO '/backup/clickhouse_${DATE}'" || error "ClickHouse backup failed"
-    
-    # Materialize backup
-    log "Backing up Materialize..."
-    docker-compose exec -T materialize materialized \
-        --command "BACKUP TO '/backup/materialize_${DATE}'" || error "Materialize backup failed"
-    
-    # Postgres backup
-    log "Backing up Postgres..."
-    docker-compose exec -T postgres pg_dumpall -U postgres > \
-        "${BACKUP_DIR}/postgres_${DATE}.sql" || error "Postgres backup failed"
+    # Compress backup
+    gzip "${BACKUP_DIR}/${TIMESTAMP}/postgres/full_backup.sql"
 }
 
-# Backup configurations
-backup_configs() {
-    log "Backing up configurations..."
-    tar -czf "${BACKUP_DIR}/configs_${DATE}.tar.gz" \
-        config/* || error "Configuration backup failed"
+# Backup QuestDB data
+backup_questdb() {
+    log "Backing up QuestDB data..."
+    
+    # Stop QuestDB to ensure data consistency
+    docker-compose stop questdb
+    
+    # Backup data directory
+    tar -czf "${BACKUP_DIR}/${TIMESTAMP}/questdb/data_backup.tar.gz" data/questdb/
+    
+    # Restart QuestDB
+    docker-compose start questdb
 }
 
-# Backup NATS data
+# Backup ClickHouse data
+backup_clickhouse() {
+    log "Backing up ClickHouse data..."
+    
+    # Get list of databases
+    databases=$(docker-compose exec -T clickhouse clickhouse-client --query "SHOW DATABASES")
+    
+    for db in $databases; do
+        if [[ "$db" != "system" && "$db" != "information_schema" && "$db" != "INFORMATION_SCHEMA" ]]; then
+            log "Backing up database: $db"
+            docker-compose exec -T clickhouse clickhouse-client --query "BACKUP DATABASE $db TO Disk('backups', '${TIMESTAMP}/${db}')"
+        fi
+    done
+}
+
+# Backup Materialize views and sources
+backup_materialize() {
+    log "Backing up Materialize metadata..."
+    
+    # Backup views
+    docker-compose exec -T materialize psql -h localhost -p 6875 -U materialize \
+        -c "\dx" > "${BACKUP_DIR}/${TIMESTAMP}/materialize/views.sql"
+    
+    # Backup sources
+    docker-compose exec -T materialize psql -h localhost -p 6875 -U materialize \
+        -c "SELECT * FROM mz_sources" > "${BACKUP_DIR}/${TIMESTAMP}/materialize/sources.sql"
+}
+
+# Backup NATS streams
 backup_nats() {
-    log "Backing up NATS data..."
-    docker-compose exec -T nats nats-backup \
-        --dir /backup \
-        --name "nats_${DATE}" || error "NATS backup failed"
+    log "Backing up NATS streams..."
+    
+    # Get list of streams
+    streams=$(docker-compose exec -T nats nats stream ls --json | jq -r '.streams[].name')
+    
+    for stream in $streams; do
+        log "Backing up stream: $stream"
+        docker-compose exec -T nats nats stream backup "$stream" \
+            "${BACKUP_DIR}/${TIMESTAMP}/nats/${stream}.backup"
+    done
 }
 
-# Verify backups
-verify_backups() {
-    log "Verifying backups..."
+# Backup configuration files
+backup_config() {
+    log "Backing up configuration files..."
     
-    # Verify Postgres dump
-    log "Verifying Postgres backup..."
-    if ! pg_restore --list "${BACKUP_DIR}/postgres_${DATE}.sql" >/dev/null 2>&1; then
-        error "Postgres backup verification failed"
-    fi
+    # Backup all config files
+    tar -czf "${BACKUP_DIR}/${TIMESTAMP}/config/config_backup.tar.gz" config/
     
-    # Verify tar archives
-    log "Verifying configuration backup..."
-    if ! tar -tzf "${BACKUP_DIR}/configs_${DATE}.tar.gz" >/dev/null 2>&1; then
-        error "Configuration backup verification failed"
-    fi
-    
-    # Verify ClickHouse backup
-    log "Verifying ClickHouse backup..."
-    docker-compose exec -T clickhouse clickhouse-client \
-        --query "CHECK BACKUP '/backup/clickhouse_${DATE}'" || error "ClickHouse backup verification failed"
+    # Backup environment files
+    cp .env "${BACKUP_DIR}/${TIMESTAMP}/config/.env.backup"
+    cp .env.template "${BACKUP_DIR}/${TIMESTAMP}/config/.env.template.backup"
 }
 
 # Cleanup old backups
 cleanup_old_backups() {
     log "Cleaning up old backups..."
-    find "$BACKUP_DIR" -type f -mtime +"$RETENTION_DAYS" -delete
     
-    # Update backup metrics
-    echo "backup_last_success_timestamp_seconds $(date +%s)" > /var/lib/node_exporter/backup_metrics.prom
+    # Keep last 7 daily backups
+    find "$BACKUP_DIR" -maxdepth 1 -type d -mtime +7 -exec rm -rf {} \;
 }
 
-# Upload to remote storage (if configured)
-upload_to_remote() {
-    if [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
-        log "Uploading to S3..."
-        aws s3 cp "${BACKUP_DIR}/${BACKUP_FILE}" \
-            "s3://${AWS_BUCKET}/${BACKUP_FILE}" || error "S3 upload failed"
-    fi
+# Verify backup integrity
+verify_backup() {
+    log "Verifying backup integrity..."
+    
+    # Check if all expected files exist
+    required_files=(
+        "postgres/full_backup.sql.gz"
+        "questdb/data_backup.tar.gz"
+        "materialize/views.sql"
+        "materialize/sources.sql"
+        "config/config_backup.tar.gz"
+        "config/.env.backup"
+    )
+    
+    for file in "${required_files[@]}"; do
+        if [ ! -f "${BACKUP_DIR}/${TIMESTAMP}/${file}" ]; then
+            error "Missing backup file: ${file}"
+        fi
+    done
+    
+    # Check file sizes
+    find "${BACKUP_DIR}/${TIMESTAMP}" -type f -size 0 -exec error "Empty backup file: {}" \;
+    
+    log "Backup verification completed successfully"
 }
 
 # Main backup procedure
 main() {
     log "Starting backup procedure..."
     
-    # Check prerequisites
-    check_prerequisites
-    
-    # Create temporary directory
-    TEMP_DIR=$(mktemp -d)
-    trap 'rm -rf "$TEMP_DIR"' EXIT
-    
-    # Perform backups
-    backup_databases
-    backup_configs
+    create_backup_dirs
+    backup_config
+    backup_postgres
+    backup_questdb
+    backup_clickhouse
+    backup_materialize
     backup_nats
-    
-    # Create consolidated backup
-    tar -czf "${BACKUP_DIR}/${BACKUP_FILE}" -C "$TEMP_DIR" . || error "Failed to create consolidated backup"
-    
-    # Verify backups
-    verify_backups
-    
-    # Upload to remote storage
-    upload_to_remote
-    
-    # Cleanup old backups
+    verify_backup
     cleanup_old_backups
     
-    log "Backup completed successfully"
+    log "Backup completed successfully at ${BACKUP_DIR}/${TIMESTAMP}"
+    
+    # Create symlink to latest backup
+    ln -sf "${BACKUP_DIR}/${TIMESTAMP}" "${BACKUP_DIR}/latest"
 }
 
-# Run main procedure
-main "$@" 
+# Execute main function
+main 

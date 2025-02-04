@@ -238,6 +238,52 @@ verify_dagster() {
     log "Dagster configuration verified successfully"
 }
 
+# Verify data directories
+verify_data_dirs() {
+    log "Verifying data directories..."
+    
+    required_dirs=(
+        "data/postgres"
+        "data/questdb"
+        "data/clickhouse"
+        "data/materialize"
+        "data/nats"
+        "logs"
+        "backups"
+    )
+    
+    for dir in "${required_dirs[@]}"; do
+        if [ ! -d "$dir" ]; then
+            log "Creating directory: $dir"
+            mkdir -p "$dir"
+        fi
+        
+        # Verify permissions
+        [[ $(stat -f "%OLp" "$dir") =~ ^7[0-7][0-7]$ ]] || error "Incorrect permissions on directory: $dir"
+    done
+    
+    log "Data directories verified successfully"
+}
+
+# Verify backup configuration
+verify_backup() {
+    log "Verifying backup configuration..."
+    
+    # Check backup script
+    if [ ! -f "scripts/backup.sh" ]; then
+        error "Backup script not found"
+    fi
+    
+    # Check backup directory permissions
+    if [ ! -d "backups" ]; then
+        error "Backup directory not found"
+    fi
+    
+    [[ $(stat -f "%OLp" "backups") == "700" ]] || error "Incorrect permissions on backup directory"
+    
+    log "Backup configuration verified successfully"
+}
+
 # Main verification procedure
 main() {
     log "Starting system verification..."
@@ -249,9 +295,11 @@ main() {
     verify_certificates
     verify_docker
     verify_dagster
+    verify_data_dirs
+    verify_backup
     
-    log "System verification completed successfully"
+    log "All system verifications completed successfully!"
 }
 
-# Run main procedure
-main "$@" 
+# Execute main function
+main 
