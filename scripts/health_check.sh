@@ -11,6 +11,7 @@ check_service() {
     local port="$2"
     local endpoint="${3:-/}"
     local expected_code="${4:-200}"
+    local is_critical="${5:-true}"
     local max_retries=5
     local retry_count=0
     local wait_time=10
@@ -29,8 +30,13 @@ check_service() {
     done
     echo "FAILED"
     echo "Error: Could not connect to $service on port $port after $max_retries attempts"
-    docker compose logs "$service" --tail 20
-    return 1
+    if [ "$is_critical" = true ]; then
+        docker compose logs "$service" --tail 20
+        return 1
+    else
+        echo "Warning: Non-critical service $service is not available"
+        return 0
+    fi
 }
 
 # Function to check database connection with retries
@@ -70,11 +76,17 @@ docker compose ps
 # Function to check if service is running and healthy
 check_service_health() {
     local service="$1"
+    local is_critical="${2:-true}"
     if ! docker compose ps "$service" --format json | grep -q "running"; then
         echo "Error: Service $service is not running"
-        echo "Service logs:"
-        docker compose logs "$service" --tail 50
-        return 1
+        if [ "$is_critical" = true ]; then
+            echo "Service logs:"
+            docker compose logs "$service" --tail 50
+            return 1
+        else
+            echo "Warning: Non-critical service $service is not running"
+            return 0
+        fi
     fi
     return 0
 }
@@ -82,41 +94,46 @@ check_service_health() {
 # Check individual services
 echo -e "\nChecking service endpoints..."
 
-# Check core services first
-check_service_health "nats" || true
-check_service_health "postgres" || true
-check_service_health "redis" || true
+# Check core services first (these are critical)
+check_service_health "nats" true || exit 1
+check_service_health "postgres" true || exit 1
+check_service_health "redis" true || exit 1
 
-# Web Services
-check_service "API" "8000" "/health" || true
-check_service "Dagster" "3001" "/health" || true
-check_service "Grafana" "3000" "/api/health" || true
-check_service "QuestDB Web Console" "9000" || true
-check_service "Prometheus" "9090" "/-/healthy" || true
-check_service "Alertmanager" "9093" "/-/healthy" || true
-check_service "Traefik Dashboard" "8080" "/api/version" || true
+# Web Services - Core (these are critical)
+check_service "API" "8000" "/health" "200" true || exit 1
+check_service "Dagster" "3001" "/health" "200" true || exit 1
+check_service "QuestDB Web Console" "9000" "/" "200" true || exit 1
 
-# Database Connections
-check_db "PostgreSQL" "5432" || true
-check_db "QuestDB" "8812" || true
-check_db "ClickHouse" "9001" || true
-check_db "Redis" "6379" || true
-check_db "NATS" "4222" || true
-check_db "Materialize" "6875" || true
+# Monitoring Services (these are non-critical)
+echo -e "\nChecking monitoring services (non-critical)..."
+check_service "Grafana" "3000" "/api/health" "200" false
+check_service "Prometheus" "9090" "/-/healthy" "200" false
+check_service "Alertmanager" "9093" "/-/healthy" "200" false
 
-# Check logs for errors
+# Infrastructure Services (these are critical)
+check_service "Traefik Dashboard" "8080" "/api/version" "200" true || exit 1
+
+# Database Connections (these are critical)
+check_db "PostgreSQL" "5432" || exit 1
+check_db "QuestDB" "8812" || exit 1
+check_db "ClickHouse" "9001" || exit 1
+check_db "Redis" "6379" || exit 1
+check_db "NATS" "4222" || exit 1
+check_db "Materialize" "6875" || exit 1
+
+# Check logs for errors (excluding monitoring services)
 echo -e "\nChecking recent logs for errors..."
-docker compose logs --tail=50 | grep -i "error" || echo "No recent errors found"
+docker compose logs --tail=50 api dagster postgres questdb clickhouse redis nats materialize traefik | grep -i "error" || echo "No recent errors found in core services"
 
-# Resource usage
+# Resource usage (ignore errors)
 echo -e "\nResource Usage:"
-docker stats --no-stream "$(docker compose ps -q)" || true
+docker stats --no-stream "$(docker compose ps -q)" 2>/dev/null || true
 
 echo -e "\nHealth check complete!"
 
-# If any service failed, exit with error
-failed_services=$(docker compose ps --format json | grep -c "Exit")
+# Only check for critical service failures
+failed_services=$(docker compose ps api dagster postgres questdb clickhouse redis nats materialize traefik --format json | grep -c "Exit" || echo "0")
 if [ "$failed_services" -gt 0 ]; then
-    echo "Error: $failed_services service(s) have failed to start"
+    echo "Error: $failed_services critical service(s) have failed to start"
     exit 1
 fi 
