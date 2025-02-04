@@ -7,13 +7,13 @@ echo "Running health checks for TheData Platform..."
 
 # Function to check service health
 check_service() {
-    local service=$1
-    local port=$2
-    local endpoint=${3:-/}
-    local expected_code=${4:-200}
+    local service="$1"
+    local port="$2"
+    local endpoint="${3:-/}"
+    local expected_code="${4:-200}"
     
     echo -n "Checking $service (port $port)... "
-    if curl -s -o /dev/null -w "%{http_code}" localhost:$port$endpoint | grep -q $expected_code; then
+    if curl -s -o /dev/null -w "%{http_code}" "localhost:${port}${endpoint}" | grep -q "${expected_code}"; then
         echo "OK"
         return 0
     else
@@ -24,10 +24,10 @@ check_service() {
 
 # Function to check database connection
 check_db() {
-    local service=$1
-    local port=$2
+    local service="$1"
+    local port="$2"
     echo -n "Checking $service (port $port)... "
-    if nc -z localhost $port; then
+    if nc -z localhost "${port}"; then
         echo "OK"
         return 0
     else
@@ -66,6 +66,6 @@ docker compose logs --tail=50 | grep -i "error" || echo "No recent errors found"
 
 # Resource usage
 echo -e "\nResource Usage:"
-docker stats --no-stream $(docker compose ps -q)
+docker stats --no-stream "$(docker compose ps -q)"
 
 echo -e "\nHealth check complete!" 

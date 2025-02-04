@@ -26,7 +26,7 @@ echo "Backing up databases..."
 
 # PostgreSQL
 echo "Backing up PostgreSQL..."
-docker compose exec -T postgres pg_dump -U ${POSTGRES_USER} thedata > "${BACKUP_PATH}/postgres_dump.sql"
+docker compose exec -T postgres pg_dump -U "${POSTGRES_USER}" thedata > "${BACKUP_PATH}/postgres_dump.sql"
 
 # QuestDB
 echo "Backing up QuestDB data..."

@@ -21,12 +21,12 @@ error() {
 }
 
 wait_for_service() {
-    local service=$1
-    local max_attempts=${2:-30}
+    local service="$1"
+    local max_attempts="${2:-30}"
     local attempt=1
     
     log "Waiting for $service to be healthy..."
-    while [ $attempt -le $max_attempts ]; do
+    while [ "$attempt" -le "$max_attempts" ]; do
         if docker-compose ps "$service" | grep -q "healthy"; then
             log "$service is healthy"
             return 0

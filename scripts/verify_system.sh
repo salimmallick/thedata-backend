@@ -75,7 +75,11 @@ verify_env() {
     fi
     
     # Export variables
-    export $(cat .env | grep -v '^#' | xargs) >/dev/null 2>&1
+    while IFS='=' read -r key value; do
+        if [[ ! $key =~ ^# && -n $key ]]; then
+            export "$key=$value"
+        fi
+    done < .env
     
     for var in "${required_vars[@]}"; do
         if [ -z "${!var}" ]; then

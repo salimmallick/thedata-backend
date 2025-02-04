@@ -48,7 +48,7 @@ sleep 30
 
 # PostgreSQL
 echo "Restoring PostgreSQL..."
-cat "${RESTORE_DIR}/${BACKUP_NAME}/postgres_dump.sql" | docker compose exec -T postgres psql -U ${POSTGRES_USER} thedata
+docker compose exec -T postgres psql -U "${POSTGRES_USER}" thedata < "${RESTORE_DIR}/${BACKUP_NAME}/postgres_dump.sql"
 
 # QuestDB
 echo "Restoring QuestDB data..."
@@ -67,7 +67,7 @@ docker compose up -d
 
 # Restore Materialize views
 echo "Restoring Materialize views..."
-cat "${RESTORE_DIR}/${BACKUP_NAME}/materialize_views.sql" | docker compose exec -T materialize psql -h localhost -p 6875 -U materialize
+docker compose exec -T materialize psql -h localhost -p 6875 -U materialize < "${RESTORE_DIR}/${BACKUP_NAME}/materialize_views.sql"
 
 # Restore Grafana dashboards
 echo "Restoring Grafana dashboards..."
