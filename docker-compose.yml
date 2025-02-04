@@ -46,7 +46,6 @@ services:
       - MZ_MEMORY_LIMIT=16GB
       - MZ_LOG_LEVEL=info
     command: [
-      "materialized",
       "--workers", "4",
       "--listen-addr", "0.0.0.0:6875"
     ]
