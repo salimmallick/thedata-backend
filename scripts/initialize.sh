@@ -3,27 +3,45 @@
 # Exit on error
 set -e
 
-echo "Initializing TheData Platform..."
+echo "Initializing TheData Platform directories..."
 
 # Create required directories
-mkdir -p data/{questdb,clickhouse,postgres,redis,nats,materialize,prometheus,alertmanager,grafana,dagster}
-mkdir -p logs/{questdb,clickhouse,postgres,redis,nats,materialize,prometheus,alertmanager,grafana,dagster,api}
-mkdir -p backups
+directories=(
+    "data/postgres"
+    "data/questdb"
+    "data/clickhouse"
+    "data/materialize"
+    "data/nats"
+    "data/grafana"
+    "data/prometheus"
+    "data/alertmanager"
+    "data/dagster"
+    "data/redis"
+    "logs/api"
+    "logs/nats"
+    "logs/postgres"
+    "logs/questdb"
+    "logs/clickhouse"
+    "logs/materialize"
+    "logs/grafana"
+    "logs/dagster"
+    "logs/redis"
+    "backups"
+)
 
-# Set permissions
-chmod -R 755 data logs backups
+for dir in "${directories[@]}"; do
+    echo "Creating directory: $dir"
+    mkdir -p "$dir"
+    chmod 755 "$dir"
+done
 
-# Check if .env exists
-if [ ! -f .env ]; then
-    echo "Creating .env file from example..."
-    cp .env.example .env
-    echo "Please edit .env with your configurations"
-fi
-
-# Create network if it doesn't exist
-if ! docker network inspect thedata_net >/dev/null 2>&1; then
+# Create Docker network if it doesn't exist
+if ! docker network ls | grep -q "thedata_net"; then
     echo "Creating Docker network: thedata_net"
-    docker network create thedata_net
+    docker network create --driver bridge thedata_net || {
+        echo "Failed to create network with default subnet, trying alternative subnet..."
+        docker network create --driver bridge --subnet 172.29.0.0/16 thedata_net
+    }
 fi
 
 echo "Initialization complete!"
