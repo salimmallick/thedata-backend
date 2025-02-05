@@ -50,7 +50,7 @@ services:
       - --data-directory=/data
       - --log-file=/var/log/materialize/materialize.log
     healthcheck:
-      test: ["CMD-SHELL", "psql -h localhost -p 6875 -U materialize -c '\\q' || exit 1"]
+      test: ["CMD", "curl", "-f", "http://localhost:6875"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -189,7 +189,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
       - ./config/postgres:/etc/postgresql
       - ./logs/postgres:/var/log/postgresql
     environment:
@@ -332,3 +332,7 @@ services:
 networks:
   thedata_net:
     external: true
+
+volumes:
+  postgres_data:
+    driver: local
